@@ -478,18 +478,26 @@ class RuleError_BadFormat(Exception):
 
 class RuleEngine2:
 
+    # Cached local IP for "self" resolution (mDNS may not be available)
+    _local_ip = None
+
+    @classmethod
+    def get_self_ip(cls):
+        """Return cached local IP. Set via set_self_ip() or falls back to 127.0.0.1."""
+        if cls._local_ip is None:
+            return '127.0.0.1'
+        return cls._local_ip
+
+    @classmethod
+    def set_self_ip(cls, ip):
+        """Manually set the self IP (preferred over mDNS resolution)."""
+        cls._local_ip = ip
+
     # replaces the self keyword, but could be expanded to any keyword replacement
     def _replace_self(self, ips):
-        # Deal with the user putting "self" in a rule (helpful if you don't know your IP)
         for ip in ips:
             if ip.lower() == 'self':
-                try:
-                    self_ip = socket.gethostbyname(socket.gethostname()+".local")
-                except socket.error:
-                    print(">> Could not get your IP address from your " \
-                          "DNS Server.")
-                    self_ip = '127.0.0.1'
-                ips[ips.index(ip)] = self_ip
+                ips[ips.index(ip)] = self.get_self_ip()
         return ips
 
 
@@ -606,7 +614,7 @@ class RuleEngine2:
         if not args.no_user_guide:
             if "manuals.playstation" in query.domain.decode():
                 print(">> Matched Request to this computer - " + query.domain.decode())
-                return A(query, socket.gethostbyname(socket.gethostname()+".local")).make_packet()
+                return A(query, self.get_self_ip()).make_packet()
 
         if not args.no_ps_blocking:
             if "playstation" in query.domain.decode() or "sonyentertainmentnetwork" in query.domain.decode() or "scea" in query.domain.decode():
@@ -697,6 +705,9 @@ if __name__ == '__main__':
     args.authoritative = True ^ args.non_authoritative
 
     rules = RuleEngine2(args.path)
+    # Use the bound interface as "self" — no mDNS lookup needed
+    if args.iface != '0.0.0.0':
+        RuleEngine2.set_self_ip(args.iface)
     rule_list = rules.rule_list
 
     interface = args.iface
