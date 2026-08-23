@@ -1,10 +1,23 @@
-import http.server, ssl, time, re #, cgi
+import http.server, ssl, time, re, os, mimetypes #, cgi
 
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, HTTPServer
+
+# Register AppCache manifest MIME type (required for browser caching)
+mimetypes.add_type('text/cache-manifest', '.appcache')
 
 class RequestHandler(SimpleHTTPRequestHandler):
     def replace_locale(self):
         self.path = re.sub(r'^\/document\/(\w{2})\/ps5', '/document/en/ps5', self.path)
+
+    def send_head(self):
+        ret = super().send_head()
+        # AppCache: never cache the manifest itself so browser always re-checks
+        fn = os.path.join(self.directory, self.path.lstrip('/'))
+        if fn.endswith('.appcache'):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        return ret
 
     def do_GET(self):
         self.replace_locale()

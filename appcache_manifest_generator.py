@@ -1,6 +1,7 @@
 import os
 import hashlib
 import argparse
+import re
 
 def calculate_file_hash(file_path):
     sha256_hash = hashlib.sha256()
@@ -48,30 +49,40 @@ def update_manifest_tag(directory_path, add_manifest):
         print(f"Couldn't find 'index.html' in '{directory_path}'. Skipping manifest tag update.")
         return
 
-    index_html_needs_updating = False
-    html_tag_found = False
-
     with open(index_html_path, "r") as f:
-        lines = f.readlines()
-        for i, line in enumerate(lines):
-            if line.startswith("<html"):
-                html_tag_found = True
-                if add_manifest and "manifest" not in line:
-                    lines[i] = "<html manifest=\"cache.appcache\">\n"
-                    index_html_needs_updating = True
-                elif not add_manifest and "manifest" in line:
-                    lines[i] = "<html>\n"
-                    index_html_needs_updating = True
-                break
+        content = f.read()
 
-    if not html_tag_found:
+    html_tag_match = re.search(r'<html(\b[^>]*)\s*>', content)
+    if not html_tag_match:
         print(f"<html> tag not found in '{index_html_path}'")
-    
-    if index_html_needs_updating:
+        return
+
+    full_tag = html_tag_match.group(0)
+    attrs_part = html_tag_match.group(1)
+    has_manifest = bool(re.search(r'\bmanifest\b', attrs_part, re.IGNORECASE))
+
+    did_change = False
+    if add_manifest and not has_manifest:
+        new_tag = '<html manifest="cache.appcache"' + attrs_part.rstrip() + '>'
+        content = content.replace(full_tag, new_tag)
+        did_change = True
+        print(f"Added manifest attribute in '{index_html_path}'")
+    elif not add_manifest and has_manifest:
+        cleaned_attrs = re.sub(r'\bmanifest\s*=\s*["\'][^"\']*["\']\s*', '', attrs_part, flags=re.IGNORECASE)
+        if cleaned_attrs.strip():
+            new_tag = '<html' + cleaned_attrs.rstrip() + '>'
+        else:
+            new_tag = '<html>'
+        content = content.replace(full_tag, new_tag)
+        did_change = True
+        print(f"Removed manifest attribute in '{index_html_path}'")
+    else:
+        action = "already present" if add_manifest else "nothing to remove"
+        print(f"Manifest {action} in '{index_html_path}'")
+
+    if did_change:
         with open(index_html_path, "w") as f:
-            f.writelines(lines)
-            action = "Added" if add_manifest else "Removed"
-            print(f"{action} manifest attribute in '{index_html_path}'")
+            f.write(content)
 
 def oswalk_with_depth_limit(directory_path, max_depth):
     initial_depth = directory_path.rstrip(os.path.sep).count(os.path.sep)
